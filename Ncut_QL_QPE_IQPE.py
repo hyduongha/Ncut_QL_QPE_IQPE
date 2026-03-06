@@ -1001,15 +1001,19 @@ def smallest_eigenpairs_ncut(W_coo, k):
 
     row, col = W_coo.row, W_coo.col
     data = W_coo.data * D_inv_sqrt[row] * D_inv_sqrt[col]
-    W_norm = coo_matrix((data, (row, col)), shape=W_coo.shape)
+    W_norm = coo_matrix((data, (row, col)), shape=W_coo.shape).toarray()
 
     # A = I - W_norm
     n = W_coo.shape[0]
-    A = coo_matrix(np.eye(n)) - W_norm
+    A = np.eye(n, dtype=float) - W_norm
 
-    # tìm k trị riêng nhỏ nhất
-    evals, evecs = eigsh(A, k=k, which="SA", maxiter=5000)
-    idx = np.argsort(evals)
+    # ép đối xứng số học cho chắc
+    A = 0.5 * (A + A.T)
+
+    # dùng dense eigensolver
+    evals, evecs = np.linalg.eigh(A)
+
+    idx = np.argsort(evals)[:k]
     evals = evals[idx]
     evecs = evecs[:, idx]
 
