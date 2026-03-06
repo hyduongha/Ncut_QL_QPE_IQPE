@@ -19,14 +19,6 @@ from qiskit_aer import AerSimulator
 from qiskit.circuit.library import UnitaryGate, QFT
 from qiskit.quantum_info import Statevector
 
-#####################################      Chỗ sửa đường dẫn     ######################################################
-if __name__ == "__main__":
-    input_path = "/content/drive/MyDrive/Test/in1"
-    main()
-########################################################################################################################
-
-
-
 # ============================================================
 # Utils
 # ============================================================
@@ -1055,3 +1047,9 @@ def main():
         append_eigenvectors_row_format(excel_path_Vector, file_name, vecs, V_ql, V_qpe, V_iqpe)
         end = time.perf_counter()
         print("Thời gian xử lý 1 ảnh ",end-start)
+
+#####################################      Chỗ sửa đường dẫn     ######################################################
+if __name__ == "__main__":
+    input_path = "/content/drive/MyDrive/Test/in1"
+    main()
+########################################################################################################################
