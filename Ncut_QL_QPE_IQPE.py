@@ -1050,9 +1050,8 @@ def main():
 #####################################      Chỗ sửa đường dẫn     ######################################################
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tên file ảnh đầu vào bài toán")
-    parser.add_argument("--nameImage", type=String, default=100, help="Ten file")
-    args = parser.parse_args()
-    
+    parser.add_argument("--nameImage", type=str, default="test.jpg", help="Ten file")
+    args = parser.parse_args(args=[])
     input_path = "/content/drive/MyDrive/Test/" + args.nameImage
     main()
 ########################################################################################################################
