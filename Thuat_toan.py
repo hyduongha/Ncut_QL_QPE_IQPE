@@ -403,7 +403,7 @@ def _iqpe_kitaev_refine_energy(
 # MAIN PIPELINE for NCut: returns 3 sets of k eigenvectors
 # ============================================================
 def compute_ncut_ql_pipeline_three(
-    W_coo: coo_matrix,
+    A: np.ndarray,
     k: int,
     *,
     n_starts: int = 32,
@@ -423,7 +423,6 @@ def compute_ncut_ql_pipeline_three(
 ):
     start_V_ql = time.perf_counter()
     
-    A = build_ncut_matrix(W_coo)
     A = np.asarray(A, dtype=float)
     N = A.shape[0]
     
@@ -448,6 +447,11 @@ def compute_ncut_ql_pipeline_three(
     E1 = E1[idx]
     V1 = V1[:, idx]
 
+    ###################### Thay bằng 3 dòng này ##########################
+    k_eff = min(k, len(E1))
+    E_ql = E1[:k_eff]
+    V_ql_c = V1[:, :k_eff]
+    '''
     keep = np.where(np.abs(E1) > zero_tol)[0]
     if keep.size == 0:
         keep = np.arange(min(k, len(E1)))
@@ -455,7 +459,10 @@ def compute_ncut_ql_pipeline_three(
 
     E_ql = E1[keep]
     V_ql_c = V1[:, keep]
+    '''
+    ###################### Thay bằng 3 dòng này ##########################
 
+    
     V_ql = np.column_stack([_ql_vector_to_real(V_ql_c[:, i]) for i in range(V_ql_c.shape[1])]).astype(np.float32)
 
     U = expm(-1j * A * t_evol)
@@ -466,7 +473,8 @@ def compute_ncut_ql_pipeline_three(
     E_qpe_list = []
     refined_vecs_for_dup = []
 
-    for i in range(k):
+    k_eff = V_ql_c.shape[1]
+    for i in range(k_eff):
         psi = V_ql_c[:, i]
         psi = _deflate_against(psi, refined_vecs_for_dup)
         psi_sv = Statevector(psi)
@@ -685,6 +693,7 @@ def normalized_cuts_eigsh(imagename, image_path, output_path, k, sigma_i, sigma_
     start_vecs = time.perf_counter()
     W_coo = compute_weight_matrix_coo_knn(image, sigma_i, sigma_x)
     A = build_ncut_matrix(W_coo)
+    A = np.asarray(A, dtype=float)
     evals, evecs = np.linalg.eigh(A)
     idx = np.argsort(evals)[:k]
     evals = evals[idx]
@@ -692,7 +701,7 @@ def normalized_cuts_eigsh(imagename, image_path, output_path, k, sigma_i, sigma_
     
     end_vecs = time.perf_counter()
 
-    E_ql, E_qpe, E_iqpe, V_ql, V_qpe, V_iqpe, start_V_ql, end_V_ql, end_V_qpe, end_V_iqpe = compute_ncut_ql_pipeline_three(W_coo, k)
+    E_ql, E_qpe, E_iqpe, V_ql, V_qpe, V_iqpe, start_V_ql, end_V_ql, end_V_qpe, end_V_iqpe = compute_ncut_ql_pipeline_three(A, k)
 
     V_ql, V_qpe, V_iqpe = align_eigenvector_signs(vecs, V_ql, V_qpe, V_iqpe)
 
@@ -913,34 +922,6 @@ def append_log_excel(
         )
 
     print(f"📝 Appended data to: {excel_path}")
-
-def smallest_eigenpairs_ncut(W_coo, k):
-    if not isinstance(W_coo, coo_matrix):
-        W_coo = W_coo.tocoo()
-
-    # chuẩn hóa
-    D_vals = np.array(W_coo.sum(axis=1)).flatten()
-    D_inv_sqrt = 1.0 / np.sqrt(D_vals + 1e-8)
-
-    row, col = W_coo.row, W_coo.col
-    data = W_coo.data * D_inv_sqrt[row] * D_inv_sqrt[col]
-    W_norm = coo_matrix((data, (row, col)), shape=W_coo.shape).toarray()
-
-    # A = I - W_norm
-    n = W_coo.shape[0]
-    A = np.eye(n, dtype=float) - W_norm
-
-    # ép đối xứng số học cho chắc
-    A = 0.5 * (A + A.T)
-
-    # dùng dense eigensolver
-    evals, evecs = np.linalg.eigh(A)
-
-    idx = np.argsort(evals)[:k]
-    evals = evals[idx]
-    evecs = evecs[:, idx]
-
-    return evals, evecs
 
 def main(name):
     input_path = "/content/drive/MyDrive/Test/" + name
