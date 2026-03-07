@@ -423,26 +423,9 @@ def compute_ncut_ql_pipeline_three(
 ):
     start_V_ql = time.perf_counter()
 
-    if not isinstance(W_coo, coo_matrix):
-        W_coo = W_coo.tocoo()
-
     N = W_coo.shape[0]
-    if W_coo.shape[0] != W_coo.shape[1]:
-        raise ValueError("W_coo must be square (N x N).")
-
-    W_sym = (W_coo + W_coo.T).tocoo()
-    W_sym.data *= 0.5
-
-    D_vals = np.array(W_sym.sum(axis=1)).flatten()
-    D_inv_sqrt = 1.0 / np.sqrt(D_vals + 1e-8)
-
-    row, col = W_sym.row, W_sym.col
-    data = W_sym.data * D_inv_sqrt[row] * D_inv_sqrt[col]
-    W_norm_dense = coo_matrix((data, (row, col)), shape=W_sym.shape).toarray()
-
-    A = np.eye(N, dtype=float) - W_norm_dense
-    A = 0.5 * (A + A.T)
-
+    A = build_ncut_matrix(W_coo)
+    
     n_qubits = int(np.log2(N))
     if 2**n_qubits != N:
         raise ValueError(f"N={N} must be power of 2 for Aer statevector QLanczos/QPE/IQPE.")
@@ -675,6 +658,24 @@ def align_eigenvector_signs(vecs, V_ql, V_qpe, V_iqpe):
 
     return V_ql_aligned, V_qpe_aligned, V_iqpe_aligned
 
+def build_ncut_matrix(W_coo):
+    if not isinstance(W_coo, coo_matrix):
+        W_coo = W_coo.tocoo()
+
+    W_sym = (W_coo + W_coo.T).tocoo()
+    W_sym.data *= 0.5
+
+    D_vals = np.array(W_sym.sum(axis=1)).flatten()
+    D_inv_sqrt = 1.0 / np.sqrt(D_vals + 1e-8)
+
+    row, col = W_sym.row, W_sym.col
+    data = W_sym.data * D_inv_sqrt[row] * D_inv_sqrt[col]
+    W_norm = coo_matrix((data, (row, col)), shape=W_sym.shape).toarray()
+
+    A = np.eye(W_coo.shape[0], dtype=float) - W_norm
+    A = 0.5 * (A + A.T)
+    return A
+    
 def normalized_cuts_eigsh(imagename, image_path, output_path, k, sigma_i, sigma_x):
     image = io.imread(image_path)
     image = color.gray2rgb(image) if image.ndim == 2 else image[:, :, :3] if image.shape[2] == 4 else image
@@ -682,7 +683,8 @@ def normalized_cuts_eigsh(imagename, image_path, output_path, k, sigma_i, sigma_
 
     start_vecs = time.perf_counter()
     W_coo = compute_weight_matrix_coo_knn(image, sigma_i, sigma_x)
-    evals, vecs= smallest_eigenpairs_ncut(W_coo, k)
+    A = build_ncut_matrix(W_coo)
+    evals, evecs = np.linalg.eigh(A)
     end_vecs = time.perf_counter()
 
     E_ql, E_qpe, E_iqpe, V_ql, V_qpe, V_iqpe, start_V_ql, end_V_ql, end_V_qpe, end_V_iqpe = compute_ncut_ql_pipeline_three(W_coo, k)
