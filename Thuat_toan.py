@@ -422,9 +422,10 @@ def compute_ncut_ql_pipeline_three(
     iqpe_weights: str = "exp",
 ):
     start_V_ql = time.perf_counter()
-
-    N = W_coo.shape[0]
+    
     A = build_ncut_matrix(W_coo)
+    A = np.asarray(A, dtype=float)
+    N = A.shape[0]
     
     n_qubits = int(np.log2(N))
     if 2**n_qubits != N:
@@ -685,6 +686,10 @@ def normalized_cuts_eigsh(imagename, image_path, output_path, k, sigma_i, sigma_
     W_coo = compute_weight_matrix_coo_knn(image, sigma_i, sigma_x)
     A = build_ncut_matrix(W_coo)
     evals, evecs = np.linalg.eigh(A)
+    idx = np.argsort(evals)[:k]
+    evals = evals[idx]
+    evecs = evecs[:, idx]
+    
     end_vecs = time.perf_counter()
 
     E_ql, E_qpe, E_iqpe, V_ql, V_qpe, V_iqpe, start_V_ql, end_V_ql, end_V_qpe, end_V_iqpe = compute_ncut_ql_pipeline_three(W_coo, k)
