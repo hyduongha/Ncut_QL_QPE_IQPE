@@ -11,7 +11,6 @@ from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import re
 from openpyxl import load_workbook
-from scipy.sparse.linalg import eigsh
 from scipy.linalg import expm, eigh
 from scipy.sparse import coo_matrix
 from qiskit import QuantumCircuit, transpile
@@ -583,78 +582,6 @@ def compute_laplacian_coo(W_coo):
     L_coo = D_coo - W_coo
     return L_coo, D_coo
 
-def compute_ncut_lanczos_cpu(W_coo, k=2, max_iter=100, tol=1e-5):
-    """
-    Tính k vector riêng nhỏ nhất của A = I - D^{-1/2} W D^{-1/2}
-    bằng phương pháp Lanczos, chạy trên CPU với NumPy và SciPy.
-    """
-
-    n = W_coo.shape[0]
-
-    # 1. Chuẩn hóa W: W_norm = D^{-1/2} * W * D^{-1/2}
-    D_vals = np.array(W_coo.sum(axis=1)).flatten()
-    D_inv_sqrt = 1.0 / np.sqrt(D_vals + 1e-8)
-    row, col = W_coo.row, W_coo.col
-    data = W_coo.data * D_inv_sqrt[row] * D_inv_sqrt[col]
-    W_norm = coo_matrix((data, (row, col)), shape=W_coo.shape)
-
-    # 2. Định nghĩa hàm nhân A = I - W_norm
-    def A_mul(x):
-        return x - W_norm @ x
-
-    # 3. Khởi tạo vector đầu
-    Q = []
-    alphas = []
-    betas = []
-
-    q = np.random.randn(n).astype(np.float32)
-    q /= np.linalg.norm(q)
-    Q.append(q)
-    beta = 0.0
-    q_prev = np.zeros_like(q)
-
-    for j in range(max_iter):
-        z = A_mul(Q[-1])
-        alpha = np.dot(Q[-1], z)
-        alphas.append(alpha)
-
-        z = z - alpha * Q[-1] - beta * q_prev
-
-        # Re-orthogonalization
-        for q_i in Q:
-            z -= np.dot(q_i, z) * q_i
-
-        beta = np.linalg.norm(z)
-        if beta < tol or len(alphas) >= k + 50:
-            break
-
-        betas.append(beta)
-        q_prev = Q[-1]
-        Q.append(z / beta)
-
-    # 4. Ma trận tridiagonal T
-    m = len(alphas)
-    T = np.zeros((m, m), dtype=np.float32)
-    for i in range(m):
-        T[i, i] = alphas[i]
-        if i > 0:
-            T[i, i-1] = T[i-1, i] = betas[i-1]
-
-    # 5. Giải trị riêng
-    vals, vecs = np.linalg.eigh(T)
-
-    sorted_idx = np.argsort(vals)
-    vecs = vecs[:, sorted_idx]
-
-    nonzero = np.where(np.abs(vals[sorted_idx]) > 1e-5)[0]
-    vecs = vecs[:, nonzero[:k]]
-
-    # 6. Trả về vector riêng trong không gian gốc
-    Q_mat = np.stack(Q, axis=1)  # (n, m)
-    eigenvectors = Q_mat @ vecs  # (n, k)
-
-    return eigenvectors
-
 def assign_labels(eigen_vectors, k):
     return KMeans(n_clusters=k, random_state=0).fit(eigen_vectors).labels_
 
@@ -755,23 +682,21 @@ def normalized_cuts_eigsh(imagename, image_path, output_path, k, sigma_i, sigma_
 
     start_vecs = time.perf_counter()
     W_coo = compute_weight_matrix_coo_knn(image, sigma_i, sigma_x)
-    _ = compute_ncut_lanczos_cpu(W_coo, k)
-    end_vecs = time.perf_counter()
-
     evals, vecs= smallest_eigenpairs_ncut(W_coo, k)
+    end_vecs = time.perf_counter()
 
     E_ql, E_qpe, E_iqpe, V_ql, V_qpe, V_iqpe, start_V_ql, end_V_ql, end_V_qpe, end_V_iqpe = compute_ncut_ql_pipeline_three(W_coo, k)
 
     V_ql, V_qpe, V_iqpe = align_eigenvector_signs(vecs, V_ql, V_qpe, V_iqpe)
 
     labels = assign_labels(vecs, k)
-    save_seg_file(labels.reshape(image.shape[:2]), image.shape, output_path + "____L.seg", imagename)
+    save_seg_file(labels.reshape(image.shape[:2]), image.shape, output_path + "_L.seg", imagename)
 
     labels = assign_labels(V_ql, k)
-    save_seg_file(labels.reshape(image.shape[:2]), image.shape, output_path + "___QL.seg", imagename)
+    save_seg_file(labels.reshape(image.shape[:2]), image.shape, output_path + "_QL.seg", imagename)
 
     labels = assign_labels(V_qpe, k)
-    save_seg_file(labels.reshape(image.shape[:2]), image.shape, output_path + "__QPE.seg", imagename)
+    save_seg_file(labels.reshape(image.shape[:2]), image.shape, output_path + "_QPE.seg", imagename)
 
     labels = assign_labels(V_iqpe, k)
     save_seg_file(labels.reshape(image.shape[:2]), image.shape, output_path + "_IQPE.seg", imagename)
@@ -805,7 +730,7 @@ def append_eigenvectors_row_format(
             }
 
             for i in range(N):
-                row[f"v{i}"] = float(M[i, j])
+                row[f"v{i}"] = float(np.real(M[i, j]))
 
             rows.append(row)
 
@@ -1020,7 +945,8 @@ def main(name):
     if not os.path.isdir(input_path):
         print(f"❌ Thư mục {input_path} không tồn tại!")
         exit()
-
+    os.makedirs(output_path, exist_ok=True)
+    
     image_files = [f for f in os.listdir(input_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif'))]
     if not image_files:
         print(f"❌ Không tìm thấy file ảnh nào trong {input_path}!")
