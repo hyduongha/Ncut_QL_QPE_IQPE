@@ -302,7 +302,7 @@ def _ql_multistart_select(
                 "res": res
             })
 
-    candidates.sort(key=lambda x: (x["res"], x["E"]))
+    candidates.sort(key=lambda x: (x["E"], x["res"]))
 
     selected = []
     for cand in candidates:
