@@ -103,11 +103,12 @@ def _select_nontrivial_by_degree(
     trivial = trivial / max(np.linalg.norm(trivial), 1e-12)
 
     overlaps = []
+    trivial_c = trivial.astype(complex)
+    overlaps = []
     for i in range(V.shape[1]):
         vi = _canonicalize_phase(V[:, i])
-        vi_r = np.real(vi)
-        vi_r = vi_r / max(np.linalg.norm(vi_r), 1e-12)
-        overlaps.append(abs(np.dot(vi_r, trivial)))
+        vi, _ = _normalize(vi)
+        overlaps.append(float(abs(np.vdot(vi, trivial_c))))
 
     trivial_idx = int(np.argmax(overlaps))
 
@@ -553,7 +554,6 @@ def compute_ncut_ql_pipeline_three(
     t_evol: float = 10.0,
     overlap_tol: float = 0.75,
     seed: int = 123,
-    zero_tol: float = 1e-5,
     t_count: int = 10,
     topM: int = 16,
     w_energy: float = 1.0,
@@ -659,10 +659,34 @@ def compute_ncut_ql_pipeline_three(
         refined_vecs_for_dup.append(v_ref)
         V_qpe_list.append(v_ref)
 
-    V_qpe_c = np.column_stack(V_qpe_list) if len(V_qpe_list) > 0 else np.zeros((N, 0), dtype=complex)
-    E_qpe = np.array(E_qpe_list, dtype=float)
-    V_qpe = _realify_columns(V_qpe_c)
+    ######################## V_qpe_c = np.column_stack(V_qpe_list) if len(V_qpe_list) > 0 else np.zeros((N, 0), dtype=complex)
+    ######################## E_qpe = np.array(E_qpe_list, dtype=float)
+    ######################## V_qpe = _realify_columns(V_qpe_c)
 
+    V_qpe_c = np.column_stack(V_qpe_list) if len(V_qpe_list) > 0 else np.zeros((N, 0), dtype=complex)
+    # ---------------------------------------------------------
+    # FINAL SUBSPACE REFINEMENT FOR QPE
+    # QPE vectors -> QR -> Ritz refinement -> chọn non-trivial
+    # ---------------------------------------------------------
+    if V_qpe_c.shape[1] > 0:
+        E_qpe_ref, V_qpe_ref = _ritz_refine_from_candidates(
+            A=A,
+            V_cand=V_qpe_c,
+            n_keep=min(max(2 * k, k + 2), V_qpe_c.shape[1]),
+            qr_tol=1e-12,
+        )
+    
+        E_qpe, V_qpe_c = _select_nontrivial_by_degree(
+            E=E_qpe_ref,
+            V=V_qpe_ref,
+            D_vals=D_vals,
+            k=k,
+        )
+    else:
+        E_qpe = np.array([], dtype=float)
+        V_qpe_c = np.zeros((N, 0), dtype=complex)
+    
+    V_qpe = _realify_columns(V_qpe_c)
     end_V_qpe = time.perf_counter()
 
     # =========================================================
@@ -702,7 +726,28 @@ def compute_ncut_ql_pipeline_three(
         V_iqpe_list.append(v_new)
 
     V_iqpe_c = np.column_stack(V_iqpe_list) if len(V_iqpe_list) > 0 else np.zeros((N, 0), dtype=complex)
-    E_iqpe = np.array(E_iqpe_list, dtype=float)
+    # ---------------------------------------------------------
+    # FINAL SUBSPACE REFINEMENT FOR IQPE
+    # IQPE vectors -> QR -> Ritz refinement -> chọn non-trivial
+    # ---------------------------------------------------------
+    if V_iqpe_c.shape[1] > 0:
+        E_iqpe_ref, V_iqpe_ref = _ritz_refine_from_candidates(
+            A=A,
+            V_cand=V_iqpe_c,
+            n_keep=min(max(2 * k, k + 2), V_iqpe_c.shape[1]),
+            qr_tol=1e-12,
+        )
+    
+        E_iqpe, V_iqpe_c = _select_nontrivial_by_degree(
+            E=E_iqpe_ref,
+            V=V_iqpe_ref,
+            D_vals=D_vals,
+            k=k,
+        )
+    else:
+        E_iqpe = np.array([], dtype=float)
+        V_iqpe_c = np.zeros((N, 0), dtype=complex)
+    
     V_iqpe = _realify_columns(V_iqpe_c)
 
     end_V_iqpe = time.perf_counter()
@@ -743,7 +788,7 @@ def compute_laplacian_coo(W_coo):
     return L_coo, D_coo
 
 def assign_labels(eigen_vectors, k):
-    return KMeans(n_clusters=k, random_state=0).fit(eigen_vectors).labels_
+    return KMeans(n_clusters=k, random_state=0, n_init=20).fit(eigen_vectors).labels_
 
 def save_segmentation(image, labels, k, output_path):
     h, w, c = image.shape
