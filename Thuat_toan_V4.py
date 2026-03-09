@@ -554,7 +554,7 @@ def compute_ncut_ql_pipeline_three(
     t_evol: float = 10.0,
     overlap_tol: float = 0.75,
     seed: int = 123,
-    t_count: int = 10,
+    t_count: int = 14,
     topM: int = 16,
     w_energy: float = 1.0,
     w_overlap: float = 0.25,
